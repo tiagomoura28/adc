@@ -4,8 +4,6 @@
 #include "hardware/adc.h"
 #include "pico/stdlib.h"
 #include "hardware/irq.h"
-#include "hardware/i2c.h"
-#include "ssd1306.h"  // Biblioteca do display SSD1306
 
 // Definições de pinos
 const int VRX = 26;
@@ -15,22 +13,16 @@ const int BTN_A = 5; // Botão A
 const int LED_B = 12;
 const int LED_R = 13;
 const int LED_G = 11;
-const int SDA_PIN = 14;
-const int SCL_PIN = 15;
 const float DIVIDER_PWM = 16.0;
 const uint16_t PERIOD = 4096;
 uint16_t led_b_level = 100, led_r_level = 100;
 uint slice_led_b, slice_led_r;
 volatile int led_g_state = 0;
 volatile int pwm_enabled = 1;
-volatile int border_style = 0; // Controle do estilo da borda do display
 
 // Variáveis para debounce
 volatile uint32_t last_interrupt_time_a = 0, last_interrupt_time_sw = 0;
 const uint32_t DEBOUNCE_DELAY = 200;  // 200ms
-
-// Instância do display SSD1306
-ssd1306_t disp;
 
 // Protótipos das funções
 void setup();
@@ -40,17 +32,13 @@ void joystick_read_axis(uint16_t *vrx_value, uint16_t *vry_value);
 void setup_buttons();
 void button_a_callback(uint gpio, uint32_t events);
 void joystick_button_callback(uint gpio, uint32_t events);
-void draw_border(int style);
-void setup_display();
 
 void setup() {
     stdio_init_all();
     setup_joystick();
     setup_buttons();
-    setup_display();
     setup_pwm_led(LED_B, &slice_led_b, led_b_level);
     setup_pwm_led(LED_R, &slice_led_r, led_r_level);
-    
     gpio_init(LED_G);
     gpio_set_dir(LED_G, GPIO_OUT);
     gpio_put(LED_G, led_g_state);
@@ -76,17 +64,21 @@ void setup_buttons() {
     gpio_set_irq_enabled_with_callback(SW, GPIO_IRQ_EDGE_FALL, true, &joystick_button_callback);
 }
 
-// Configuração do display SSD1306
-void setup_display() {
-    i2c_init(i2c0, 400 * 1000);
-    gpio_set_function(SDA_PIN, GPIO_FUNC_I2C);
-    gpio_set_function(SCL_PIN, GPIO_FUNC_I2C);
-    gpio_pull_up(SDA_PIN);
-    gpio_pull_up(SCL_PIN);
+void setup_pwm_led(uint led, uint *slice, uint16_t level) {
+    gpio_set_function(led, GPIO_FUNC_PWM);
+    *slice = pwm_gpio_to_slice_num(led);
+    pwm_set_clkdiv(*slice, DIVIDER_PWM);
+    pwm_set_wrap(*slice, PERIOD);
+    pwm_set_gpio_level(led, level);
+    pwm_set_enabled(*slice, true);
+}
 
-    ssd1306_init(&disp, 128, 64, 0x3C, i2c0);
-    ssd1306_clear(&disp);
-    draw_border(border_style);
+void joystick_read_axis(uint16_t *vrx_value, uint16_t *vry_value) {
+    adc_select_input(1);
+    *vrx_value = adc_read();
+    
+    adc_select_input(0);
+    *vry_value = adc_read();
 }
 
 // Interrupção do Botão A
@@ -112,56 +104,8 @@ void joystick_button_callback(uint gpio, uint32_t events) {
         last_interrupt_time_sw = current_time;
         led_g_state = !led_g_state;
         gpio_put(LED_G, led_g_state);
-        
-        // Alterna o estilo da borda
-        border_style = (border_style + 1) % 3; 
-        draw_border(border_style);
-
-        printf("Botão SW pressionado! LED Verde: %d, Borda: %d\n", led_g_state, border_style);
+        printf("Botão SW pressionado! LED Verde: %d\n", led_g_state);
     }
-}
-
-void joystick_read_axis(uint16_t *vrx_value, uint16_t *vry_value) {
-    adc_select_input(1);
-    *vrx_value = adc_read();
-    
-    adc_select_input(0);
-    *vry_value = adc_read();
-}
-
-void setup_pwm_led(uint led, uint *slice, uint16_t level) {
-    gpio_set_function(led, GPIO_FUNC_PWM);
-    *slice = pwm_gpio_to_slice_num(led);
-    pwm_set_clkdiv(*slice, DIVIDER_PWM);
-    pwm_set_wrap(*slice, PERIOD);
-    pwm_set_gpio_level(led, level);
-    pwm_set_enabled(*slice, true);
-}
-
-// Função para desenhar a borda do display
-void draw_border(int style) {
-    ssd1306_clear(&disp);
-    
-    if (style == 0) {
-        // Borda padrão
-        ssd1306_draw_rect(&disp, 0, 0, 127, 63);
-    } else if (style == 1) {
-        // Borda dupla
-        ssd1306_draw_rect(&disp, 0, 0, 127, 63);
-        ssd1306_draw_rect(&disp, 2, 2, 123, 59);
-    } else if (style == 2) {
-        // Borda tracejada
-        for (int i = 0; i < 128; i += 4) {
-            ssd1306_draw_pixel(&disp, i, 0);
-            ssd1306_draw_pixel(&disp, i, 63);
-        }
-        for (int i = 0; i < 64; i += 4) {
-            ssd1306_draw_pixel(&disp, 0, i);
-            ssd1306_draw_pixel(&disp, 127, i);
-        }
-    }
-
-    ssd1306_show(&disp);
 }
 
 int main() {
@@ -176,6 +120,7 @@ int main() {
             int led_b_intensity = abs((int) vry_value - 2048) * 2;
             int led_r_intensity = abs((int) vrx_value - 2048) * 2;
 
+            // Limita os valores de PWM
             if (led_b_intensity > 4095) led_b_intensity = 4095;
             if (led_r_intensity > 4095) led_r_intensity = 4095;
 
