@@ -32,6 +32,10 @@ void setup_pwm_led(uint led, uint *slice, uint16_t level);
 void joystick_read_axis(uint16_t *vrx_value, uint16_t *vry_value);
 void setup_buttons();
 
+// Funções de interrupção
+void btn_a_interrupt_handler(uint gpio, uint32_t events);
+void sw_interrupt_handler(uint gpio, uint32_t events);
+
 void setup() {
     stdio_init_all();
     setup_joystick();
@@ -54,16 +58,18 @@ void setup_buttons() {
     gpio_init(BTN_A);
     gpio_set_dir(BTN_A, GPIO_IN);
     gpio_pull_up(BTN_A);
-
-    // Configuração do botão B
-    gpio_init(BTN_B);
-    gpio_set_dir(BTN_B, GPIO_IN);
-    gpio_pull_up(BTN_B);
+    gpio_set_irq_enabled_with_callback(BTN_A, GPIO_IRQ_EDGE_FALL, true, btn_a_interrupt_handler);
 
     // Configuração do botão SW (Joystick)
     gpio_init(SW);
     gpio_set_dir(SW, GPIO_IN);
     gpio_pull_up(SW);
+    gpio_set_irq_enabled_with_callback(SW, GPIO_IRQ_EDGE_FALL, true, sw_interrupt_handler);
+
+    // Configuração do botão B
+    gpio_init(BTN_B);
+    gpio_set_dir(BTN_B, GPIO_IN);
+    gpio_pull_up(BTN_B);
 }
 
 void setup_pwm_led(uint led, uint *slice, uint16_t level) {
@@ -83,6 +89,29 @@ void joystick_read_axis(uint16_t *vrx_value, uint16_t *vry_value) {
     *vry_value = adc_read();
 }
 
+void btn_a_interrupt_handler(uint gpio, uint32_t events) {
+    uint32_t current_time = time_us_32();
+    if (current_time - last_interrupt_time_a > DEBOUNCE_DELAY * 1000) {
+        last_interrupt_time_a = current_time;
+        pwm_enabled = !pwm_enabled;
+        if (!pwm_enabled) {
+            pwm_set_gpio_level(LED_B, 0);
+            pwm_set_gpio_level(LED_R, 0);
+        }
+        printf("Botão A pressionado!\n");
+    }
+}
+
+void sw_interrupt_handler(uint gpio, uint32_t events) {
+    uint32_t current_time = time_us_32();
+    if (current_time - last_interrupt_time_sw > DEBOUNCE_DELAY * 1000) {
+        last_interrupt_time_sw = current_time;
+        led_g_state = !led_g_state;
+        gpio_put(LED_G, led_g_state);
+        printf("Botão SW pressionado!\n");
+    }
+}
+
 int main() {
     uint16_t vrx_value, vry_value;
     setup();
@@ -91,34 +120,6 @@ int main() {
     while (true) {
         // Leitura dos eixos do joystick
         joystick_read_axis(&vrx_value, &vry_value);
-
-        // Verificação do estado dos botões com debounce
-        uint32_t current_time = time_us_32();
-
-        // Verificar Botão SW
-        if (!gpio_get(SW) && (current_time - last_interrupt_time_sw > DEBOUNCE_DELAY * 1000)) {
-            last_interrupt_time_sw = current_time;
-            led_g_state = !led_g_state;
-            gpio_put(LED_G, led_g_state);
-            printf("Botão SW pressionado!\n");
-        }
-
-        // Verificar Botão A
-        if (!gpio_get(BTN_A) && (current_time - last_interrupt_time_a > DEBOUNCE_DELAY * 1000)) {
-            last_interrupt_time_a = current_time;
-            pwm_enabled = !pwm_enabled;
-            if (!pwm_enabled) {
-                pwm_set_gpio_level(LED_B, 0);
-                pwm_set_gpio_level(LED_R, 0);
-            }
-            printf("Botão A pressionado!\n");
-        }
-
-        // Verificar Botão B
-        if (!gpio_get(BTN_B) && (current_time - last_interrupt_time_b > DEBOUNCE_DELAY * 1000)) {
-            last_interrupt_time_b = current_time;
-            printf("Botão B pressionado!\n");
-        }
 
         // Controle do brilho dos LEDs com PWM
         if (pwm_enabled) {
