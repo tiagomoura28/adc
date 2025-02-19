@@ -34,4 +34,5 @@ Vídeo de demonstração: Deve ser produzido um vídeo de até 2 minutos, conten
 • Link do vídeo no Youtube ou Google Drive.
 
 Link do video de teste
-https://github.com/tiagomoura28/adc
+https://drive.google.com/file/d/1LtK0idBhjFCfbfNopqRSFYnpRBO5Nf4u/view?usp=drive_link
+
